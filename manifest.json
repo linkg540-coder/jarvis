@@ -1,0 +1,10 @@
+{
+  "name": "Jarvis",
+  "short_name": "Jarvis",
+  "description": "Talk to Jarvis — my personal AI agent",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#070c18",
+  "theme_color": "#070c18",
+  "orientation": "portrait-primary"
+}
