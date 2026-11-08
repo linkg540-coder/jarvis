@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jarvis</title>
+<meta name="theme-color" content="#070c18">
+<style>
+  :root{
+    --bg:#070c18; --bg2:#0b1222; --card:#101a2e; --line:#1e2c47;
+    --txt:#e8eefc; --mut:#8496b5; --gold:#f5c451; --gold-dim:#a8842f;
+    --accent:#5b8cff; --err:#ff6b6b; --glow:rgba(245,196,81,.18);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{
+    background:
+      radial-gradient(900px 500px at 15% -10%, rgba(91,140,255,.10), transparent 60%),
+      radial-gradient(700px 420px at 90% 110%, rgba(245,196,81,.07), transparent 60%),
+      var(--bg);
+    color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    display:flex;flex-direction:column;
+    height:100dvh;overflow:hidden;
+  }
+  header{
+    flex:0 0 auto;display:flex;align-items:center;gap:.6rem;
+    padding:calc(.75rem + env(safe-area-inset-top)) 1rem .75rem;
+    border-bottom:1px solid var(--line);
+    background:rgba(7,12,24,.82);backdrop-filter:blur(14px);
+  }
+  .mark{
+    width:34px;height:34px;border-radius:11px;flex:0 0 auto;
+    background:linear-gradient(145deg,#16233c,#0c1526);
+    border:1px solid var(--gold-dim);
+    display:grid;place-items:center;font-size:1.05rem;
+    box-shadow:0 0 22px var(--glow);
+  }
+  .title{font-weight:700;letter-spacing:.14em;font-size:.95rem;color:var(--gold)}
+  .sub{font-size:.68rem;color:var(--mut);letter-spacing:.04em}
+  .grow{flex:1}
+  .icobtn{
+    width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+    background:var(--card);border:1px solid var(--line);color:var(--mut);
+    font-size:1rem;cursor:pointer;transition:.15s;
+  }
+  .icobtn:hover{color:var(--gold);border-color:var(--gold-dim)}
+  main{flex:1;overflow-y:auto;padding:1rem 1rem 0;scroll-behavior:smooth}
+  .thread{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:.75rem;padding-bottom:.5rem}
+  .msg{display:flex;gap:.55rem;align-items:flex-end;animation:rise .22s ease-out}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .msg.me{flex-direction:row-reverse}
+  .av{
+    width:26px;height:26px;border-radius:8px;flex:0 0 auto;display:grid;place-items:center;
+    font-size:.72rem;border:1px solid var(--line);background:var(--card);color:var(--mut)
+  }
+  .msg.j .av{border-color:var(--gold-dim);color:var(--gold);box-shadow:0 0 14px var(--glow)}
+  .bubble{
+    max-width:min(80%,620px);padding:.62rem .85rem;border-radius:14px;
+    font-size:.94rem;line-height:1.55;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;
+  }
+  .msg.j .bubble{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:5px}
+  .msg.me .bubble{background:linear-gradient(160deg,#26406e,#1b2c4d);border:1px solid #2f4b7d;border-bottom-right-radius:5px}
+  .bubble code{background:#0a1526;border:1px solid var(--line);border-radius:5px;padding:.05em .35em;font-size:.86em}
+  .bubble pre{background:#0a1526;border:1px solid var(--line);border-radius:9px;padding:.7rem;overflow-x:auto;margin:.5rem 0}
+  .bubble pre code{border:0;background:none;padding:0}
+  .bubble a{color:#9db9ff}
+  .meta{font-size:.62rem;color:var(--mut);margin-top:.25rem;opacity:.75}
+  .typing{display:flex;gap:4px;padding:.7rem .9rem}
+  .typing i{width:6px;height:6px;border-radius:50%;background:var(--gold);opacity:.5;animation:blink 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-2px)}}
+  .welcome{max-width:760px;margin:8vh auto 0;text-align:center;padding:0 1rem}
+  .welcome .big{font-size:1.6rem;font-weight:700;letter-spacing:.02em}
+  .welcome .big span{color:var(--gold)}
+  .welcome p{color:var(--mut);font-size:.9rem;line-height:1.6;margin:.7rem auto 1.4rem;max-width:42ch}
+  .chips{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center}
+  .chip{
+    padding:.5rem .8rem;border-radius:999px;background:var(--card);border:1px solid var(--line);
+    color:var(--txt);font-size:.82rem;cursor:pointer;transition:.15s
+  }
+  .chip:hover{border-color:var(--gold-dim);color:var(--gold)}
+  footer{
+    flex:0 0 auto;padding:.6rem 1rem calc(.7rem + env(safe-area-inset-bottom));
+    background:rgba(7,12,24,.9);backdrop-filter:blur(14px);border-top:1px solid var(--line)
+  }
+  .composer{max-width:760px;margin:0 auto;display:flex;gap:.5rem;align-items:flex-end}
+  textarea{
+    flex:1;resize:none;max-height:140px;min-height:44px;padding:.72rem .9rem;
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    color:var(--txt);font:inherit;font-size:.94rem;line-height:1.4;outline:none;transition:.15s
+  }
+  textarea:focus{border-color:var(--gold-dim);box-shadow:0 0 0 3px rgba(245,196,81,.08)}
+  textarea::placeholder{color:#65799b}
+  .send{
+    width:46px;height:46px;border-radius:13px;border:1px solid var(--gold-dim);
+    background:linear-gradient(160deg,#f7cf6f,#d9a93c);color:#231a05;
+    font-size:1.05rem;cursor:pointer;display:grid;place-items:center;transition:.15s;flex:0 0 auto
+  }
+  .send:disabled{opacity:.45;cursor:not-allowed}
+  .send:hover:not(:disabled){filter:brightness(1.07)}
+  .modal{
+    position:fixed;inset:0;background:rgba(4,8,16,.86);backdrop-filter:blur(8px);
+    display:none;place-items:center;padding:1rem;z-index:50
+  }
+  .modal.on{display:grid}
+  .sheet{
+    width:100%;max-width:430px;background:linear-gradient(180deg,#101a2e,#0b1222);
+    border:1px solid var(--line);border-radius:18px;padding:1.25rem;
+    box-shadow:0 24px 70px rgba(0,0,0,.6)
+  }
+  .sheet h2{margin:0 0 .35rem;font-size:1.05rem;letter-spacing:.02em}
+  .sheet p{margin:0 0 1rem;color:var(--mut);font-size:.82rem;line-height:1.55}
+  .sheet label{display:block;font-size:.72rem;color:var(--mut);margin:.75rem 0 .3rem;letter-spacing:.06em;text-transform:uppercase}
+  .sheet input{
+    width:100%;padding:.7rem .8rem;border-radius:11px;background:#0a1526;border:1px solid var(--line);
+    color:var(--txt);font:inherit;font-size:.9rem;outline:none
+  }
+  .sheet input:focus{border-color:var(--gold-dim)}
+  .row{display:flex;gap:.5rem;margin-top:1.1rem}
+  .btn{
+    flex:1;padding:.72rem;border-radius:11px;border:1px solid var(--line);background:var(--card);
+    color:var(--txt);font:inherit;font-size:.88rem;cursor:pointer;transition:.15s
+  }
+  .btn.primary{background:linear-gradient(160deg,#f7cf6f,#d9a93c);color:#231a05;border-color:var(--gold-dim);font-weight:600}
+  .btn:hover{filter:brightness(1.06)}
+  .hint{font-size:.72rem;color:var(--mut);margin-top:.7rem;line-height:1.5}
+  .hint a{color:#9db9ff}
+  .toast{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));
+    background:#3a1420;border:1px solid #6b2436;color:#ffd9e0;padding:.6rem .9rem;border-radius:11px;
+    font-size:.82rem;max-width:90vw;z-index:60;box-shadow:0 10px 30px rgba(0,0,0,.5)
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">◈</div>
+  <div>
+    <div class="title">JARVIS</div>
+    <div class="sub" id="status">ready</div>
+  </div>
+  <div class="grow"></div>
+  <div class="icobtn" id="newBtn" title="New conversation">＋</div>
+  <div class="icobtn" id="setBtn" title="Settings">⚙</div>
+</header>
+
+<main id="main">
+  <div class="thread" id="thread"></div>
+  <div class="welcome" id="welcome">
+    <div class="big">Good to see you, <span>Link</span>.</div>
+    <p>Ask me anything, hand me a task, or pick something below. I can work on your apps, run automations, and pull things together for you.</p>
+    <div class="chips">
+      <div class="chip">What are you working on right now?</div>
+      <div class="chip">Status of my three apps</div>
+      <div class="chip">Summarize today's prayer push health</div>
+      <div class="chip">Any BOL uploads pending?</div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="composer">
+    <textarea id="input" rows="1" placeholder="Message Jarvis…" autocomplete="off"></textarea>
+    <button class="send" id="sendBtn" title="Send">↑</button>
+  </div>
+</footer>
+
+<div class="modal" id="modal">
+  <div class="sheet">
+    <h2>Connect to Jarvis</h2>
+    <p>Paste your agent API key once. It stays on this device only (localStorage) — it is never uploaded anywhere.</p>
+    <label for="keyIn">Agent API key</label>
+    <input id="keyIn" type="password" placeholder="api_key from your agent's API docs" autocomplete="off" spellcheck="false">
+    <div class="hint">Find it in Base44 → your Jarvis agent → API docs / Developer panel.</div>
+    <label for="convIn">Conversation ID (optional)</label>
+    <input id="convIn" type="text" placeholder="leave blank to auto-create" autocomplete="off" spellcheck="false">
+    <div class="row">
+      <button class="btn" id="cancelSetup">Cancel</button>
+      <button class="btn primary" id="saveSetup">Connect</button>
+    </div>
+    <div class="hint" id="setupMsg"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var API = "https://app.base44.com/api/agents/6a704fd9688b1feb11f8ed2a";
+  var K = { key:"jarvis_key", conv:"jarvis_conv", msgs:"jarvis_msgs" };
+  var $ = function(id){ return document.getElementById(id); };
+  var thread=$("thread"), main=$("main"), input=$("input"), sendBtn=$("sendBtn"), welcome=$("welcome");
+  var state = { key:null, conv:null, busy:false, msgs:[] };
+
+  function loadCfg(){
+    try{
+      state.key = localStorage.getItem(K.key) || null;
+      state.conv = localStorage.getItem(K.conv) || null;
+      state.msgs = JSON.parse(localStorage.getItem(K.msgs) || "[]");
+    }catch(e){ state.msgs = []; }
+  }
+  function saveCfg(){
+    try{
+      if(state.key) localStorage.setItem(K.key, state.key);
+      if(state.conv) localStorage.setItem(K.conv, state.conv);
+      localStorage.setItem(K.msgs, JSON.stringify(state.msgs.slice(-200)));
+    }catch(e){}
+  }
+  function setStatus(t){ $("status").textContent = t; }
+  function toast(msg, ms){
+    var t=document.createElement("div"); t.className="toast"; t.textContent=msg;
+    document.body.appendChild(t);
+    setTimeout(function(){ t.remove(); }, ms || 4200);
+  }
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"})[c]; }); }
+  function mdLite(s){
+    var h = esc(s);
+    h = h.replace(/```([\s\S]*?)```/g, function(_,c){ return "<pre><code>"+c.replace(/^\n/,"")+"</code></pre>"; });
+    h = h.replace(/`([^`]+)`/g, "<code>$1</code>");
+    h = h.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    h = h.replace(/(https?:\/\/[^\s<)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    return h;
+  }
+
+  function render(){
+    thread.innerHTML = "";
+    if(!state.msgs.length){ welcome.style.display="block"; return; }
+    welcome.style.display="none";
+    state.msgs.forEach(function(m){
+      var who = m.role === "user" ? "me" : "j";
+      var el = document.createElement("div");
+      el.className = "msg " + who;
+      el.innerHTML = '<div class="av">' + (who==="me" ? "L" : "◈") + '</div>' +
+                     '<div><div class="bubble">' + mdLite(m.text) + '</div>' +
+                     (m.at ? '<div class="meta">' + esc(m.at) + '</div>' : '') + '</div>';
+      thread.appendChild(el);
+    });
+    scrollDown();
+  }
+  function scrollDown(){ requestAnimationFrame(function(){ main.scrollTop = main.scrollHeight + 999; }); }
+
+  function pushMsg(role, text){
+    state.msgs.push({ role:role, text:text, at:new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}) });
+    saveCfg(); render();
+  }
+
+  function typing(on){
+    var ex = document.getElementById("typing");
+    if(!on){ if(ex) ex.remove(); return; }
+    if(ex) return;
+    var el = document.createElement("div");
+    el.id = "typing"; el.className = "msg j";
+    el.innerHTML = '<div class="av">◈</div><div class="bubble typing"><i></i><i></i><i></i></div>';
+    thread.appendChild(el); scrollDown();
+  }
+
+  function apiHeaders(){
+    return { "Content-Type":"application/json", "api_key": state.key };
+  }
+
+  async function api(path, opts){
+    opts = opts || {};
+    var res = await fetch(API + path, {
+      method: opts.method || "GET",
+      headers: apiHeaders(),
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    var txt = await res.text(), data = null;
+    try{ data = txt ? JSON.parse(txt) : null; }catch(e){ data = { raw: txt }; }
+    if(!res.ok){
+      var msg = (data && (data.detail || data.error || data.message)) || ("HTTP " + res.status);
+      throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    }
+    return data;
+  }
+
+  function pickId(o){
+    if(!o) return null;
+    if(typeof o === "string") return o;
+    if(Array.isArray(o)){ for(var i=0;i<o.length;i++){ var r=pickId(o[i]); if(r) return r; } return null; }
+    var keys = ["id","conversation_id","conversationId","_id"];
+    for(var k=0;k<keys.length;k++){ if(o[keys[k]]) return o[keys[k]]; }
+    var arrs = ["conversations","items","data","results"];
+    for(var j=0;j<arrs.length;j++){ if(o[arrs[j]]) { var r2 = pickId(o[arrs[j]]); if(r2) return r2; } }
+    return null;
+  }
+
+  function pickText(o, depth){
+    depth = depth || 0;
+    if(depth > 5 || o == null) return null;
+    if(typeof o === "string") return o.trim() || null;
+    if(Array.isArray(o)){
+      for(var i=o.length-1;i>=0;i--){ var r = pickText(o[i], depth+1); if(r) return r; }
+      return null;
+    }
+    if(typeof o !== "object") return null;
+    var pref = ["content","text","message","response","reply","answer","assistant","output"];
+    for(var p=0;p<pref.length;p++){
+      var v = o[pref[p]];
+      if(typeof v === "string" && v.trim()) return v.trim();
+    }
+    var nests = ["message","data","result","response","assistant_message","messages","reply"];
+    for(var n=0;n<nests.length;n++){
+      if(o[nests[n]]){
+        var got = pickText(o[nests[n]], depth+1);
+        if(got) return got;
+      }
+    }
+    return null;
+  }
+
+  async function ensureConversation(){
+    if(state.conv) return state.conv;
+    // reuse the newest existing conversation, else create one
+    try{
+      var list = await api("/conversations");
+      var id = pickId(list);
+      if(id){ state.conv = id; saveCfg(); return id; }
+    }catch(e){ /* fall through to create */ }
+    var made = await api("/conversations", { method:"POST", body:{} });
+    var nid = pickId(made);
+    if(!nid) throw new Error("Could not open a conversation with Jarvis.");
+    state.conv = nid; saveCfg();
+    return nid;
+  }
+
+  async function send(){
+    var text = input.value.trim();
+    if(!text || state.busy) return;
+    if(!state.key){ openSetup(); return; }
+    input.value = ""; autoSize();
+    pushMsg("user", text);
+    state.busy = true; sendBtn.disabled = true; setStatus("thinking…");
+    typing(true);
+    try{
+      var conv = await ensureConversation();
+      var out = await api("/conversations/" + encodeURIComponent(conv) + "/messages", {
+        method:"POST",
+        body:{ message: text, content: text }
+      });
+      var reply = pickText(out);
+      if(!reply) reply = "I got your message but couldn't read the reply. (" + JSON.stringify(out).slice(0,300) + ")";
+      typing(false);
+      pushMsg("assistant", reply);
+      setStatus("ready");
+    }catch(err){
+      typing(false);
+      setStatus("error");
+      toast(err && err.message ? err.message : "Something went wrong.");
+      pushMsg("assistant", "⚠️ " + (err && err.message ? err.message : "Request failed."));
+    }finally{
+      state.busy = false; sendBtn.disabled = false;
+    }
+  }
+
+  function autoSize(){
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 140) + "px";
+  }
+
+  function openSetup(){
+    $("keyIn").value = state.key || "";
+    $("convIn").value = state.conv || "";
+    $("setupMsg").textContent = "";
+    $("modal").classList.add("on");
+    setTimeout(function(){ $("keyIn").focus(); }, 50);
+  }
+
+  async function saveSetup(){
+    var k = $("keyIn").value.trim();
+    var c = $("convIn").value.trim();
+    if(!k){ $("setupMsg").textContent = "Enter your API key to connect."; return; }
+    $("setupMsg").textContent = "Checking…";
+    state.key = k; state.conv = c || null;
+    try{
+      var list = await api("/conversations");
+      if(!state.conv){ state.conv = pickId(list); }
+      saveCfg();
+      $("modal").classList.remove("on");
+      setStatus("connected");
+      toast("Connected to Jarvis ✓", 2600);
+    }catch(err){
+      $("setupMsg").textContent = "Could not connect: " + (err && err.message ? err.message : "unknown error");
+      state.key = null;
+    }
+  }
+
+  // wiring
+  $("sendBtn").addEventListener("click", send);
+  $("setBtn").addEventListener("click", openSetup);
+  $("cancelSetup").addEventListener("click", function(){ $("modal").classList.remove("on"); });
+  $("saveSetup").addEventListener("click", saveSetup);
+  $("newBtn").addEventListener("click", function(){
+    state.conv = null; state.msgs = []; saveCfg();
+    try{ localStorage.removeItem(K.conv); localStorage.removeItem(K.msgs); }catch(e){}
+    render(); input.focus(); setStatus("new conversation");
+  });
+  input.addEventListener("input", autoSize);
+  input.addEventListener("keydown", function(e){
+    if(e.key === "Enter" && !e.shiftKey && !e.isComposing){ e.preventDefault(); send(); }
+  });
+  document.addEventListener("click", function(e){
+    var chip = e.target.closest ? e.target.closest(".chip") : null;
+    if(chip){ input.value = chip.textContent; autoSize(); input.focus(); }
+  });
+
+  loadCfg(); render();
+  if(!state.key){ setStatus("not connected"); openSetup(); }
+  else { setStatus("ready"); }
+})();
+</script>
+</body>
+</html>
