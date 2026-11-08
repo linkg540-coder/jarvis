@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Jarvis</title>
 <meta name="theme-color" content="#070c18">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Jarvis">
+<link rel="manifest" href="manifest.json">
 <style>
   :root{
     --bg:#070c18; --bg2:#0b1222; --card:#101a2e; --line:#1e2c47;
@@ -172,7 +176,7 @@
     <p>Paste your agent API key once. It stays on this device only (localStorage) — it is never uploaded anywhere.</p>
     <label for="keyIn">Agent API key</label>
     <input id="keyIn" type="password" placeholder="api_key from your agent's API docs" autocomplete="off" spellcheck="false">
-    <div class="hint">Find it in Base44 → your Jarvis agent → API docs / Developer panel.</div>
+    <div class="hint">Grab it in Base44 → your Jarvis agent → <a href="https://app.base44.com/superagent/6a704fd9688b1feb11f8ed2a" target="_blank" rel="noopener">API docs / Developer panel</a>.</div>
     <label for="convIn">Conversation ID (optional)</label>
     <input id="convIn" type="text" placeholder="leave blank to auto-create" autocomplete="off" spellcheck="false">
     <div class="row">
