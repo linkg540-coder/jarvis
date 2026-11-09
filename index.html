@@ -187,6 +187,11 @@
       <button class="pbtn on" data-prov="free">Free AI<small>no key · free</small></button>
       <button class="pbtn" data-prov="agent">Jarvis agent<small>needs API key</small></button>
     </div>
+    <div id="freeFields">
+    <label for="boostIn">Free boost key (optional)</label>
+    <input id="boostIn" type="password" placeholder="leave blank for the plain free tier" autocomplete="off" spellcheck="false">
+    <div class="hint">Free tier allows one reply every 45s per network. A free Pollinations key lifts that: <a href="https://enter.pollinations.ai" target="_blank" rel="noopener">enter.pollinations.ai</a>.</div>
+    </div>
     <div id="agentFields" style="display:none">
     <label for="keyIn">Agent API key</label>
     <input id="keyIn" type="password" placeholder="api_key from your agent's API docs" autocomplete="off" spellcheck="false">
@@ -224,11 +229,12 @@
   }
   var $ = function(id){ return document.getElementById(id); };
   var thread=$("thread"), main=$("main"), input=$("input"), sendBtn=$("sendBtn"), welcome=$("welcome");
-  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free", kernel:null };
+  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free", kernel:null, boost:null };
 
   function loadCfg(){
     try{
       state.prov = localStorage.getItem(K.prov) || "free";
+      state.boost = localStorage.getItem("jarvis_boost") || null;
       state.key = localStorage.getItem(K.key) || null;
       state.conv = localStorage.getItem(K.conv) || null;
       state.msgs = JSON.parse(localStorage.getItem(K.msgs) || "[]");
@@ -237,6 +243,7 @@
   function saveCfg(){
     try{
       localStorage.setItem(K.prov, state.prov);
+      if(state.boost) localStorage.setItem("jarvis_boost", state.boost); else localStorage.removeItem("jarvis_boost");
       if(state.key) localStorage.setItem(K.key, state.key);
       if(state.conv) localStorage.setItem(K.conv, state.conv);
       localStorage.setItem(K.msgs, JSON.stringify(state.msgs.slice(-200)));
@@ -355,13 +362,19 @@
     });
     var res = await fetch(FREE, {
       method:"POST",
-      headers:{ "Content-Type":"application/json" },
+      headers: state.boost ? { "Content-Type":"application/json", "Authorization":"Bearer " + state.boost }
+                              : { "Content-Type":"application/json" },
       body: JSON.stringify({ model:"openai", messages: msgs, referrer:"jarvis-app" })
     });
     var txt = await res.text(), data = null;
     try{ data = txt ? JSON.parse(txt) : null; }catch(e){ data = { raw: txt }; }
     if(!res.ok){
-      if(res.status === 429) throw new Error("Free model is rate limited right now. Give it a minute and try again.");
+      if(res.status === 429){
+        var ra = 30, mt = /retry after\s+(\d+)\s*s/i.exec(txt || "");
+        if(mt) ra = parseInt(mt[1], 10) || 30;
+        var lim = new Error("Free model is rate limited (one reply every 45s per network). Retrying in " + ra + "s.");
+        lim.retryAfter = ra; throw lim;
+      }
       var m = (data && (data.error && (data.error.message || data.error) || data.message)) || ("HTTP " + res.status);
       throw new Error(typeof m === "string" ? m : JSON.stringify(m));
     }
@@ -397,7 +410,22 @@
     try{
       var reply;
       if(state.prov === "free"){
-        reply = await callFree();
+      var reply = null, tries = 0;
+      while(reply === null){
+        try{ reply = await callFree(); }
+        catch(e){
+          if(e && e.retryAfter && tries < 2){
+            tries++;
+            var left = e.retryAfter + 1;
+            typing(false);
+            setStatus("rate limited, retrying in " + left + "s");
+            await new Promise(function(r){ setTimeout(r, left * 1000); });
+            setStatus("thinking…"); typing(true);
+            continue;
+          }
+          throw e;
+        }
+      }
       } else {
         var conv = await ensureConversation();
         var out = await api("/conversations/" + encodeURIComponent(conv) + "/messages", {
@@ -426,6 +454,9 @@
   }
 
   function paintProv(){
+    var ff = $("freeFields"), af = $("agentFields");
+    if(ff) ff.style.display = state.prov === "free" ? "block" : "none";
+    if(af) af.style.display = state.prov === "agent" ? "block" : "none";
     var note = $("welcomeNote");
     if(note) note.textContent = state.prov === "free"
       ? "Free AI mode — no key, no credits, runs on an open model. Straight talk, quick answers, and it remembers this chat on this device only."
@@ -436,6 +467,7 @@
     $("agentFields").style.display = state.prov === "agent" ? "block" : "none";
   }
   function openSetup(){
+    $("boostIn").value = state.boost || "";
     $("keyIn").value = state.key || "";
     $("convIn").value = state.conv || "";
     $("setupMsg").textContent = "";
@@ -445,6 +477,7 @@
   }
 
   async function saveSetup(){
+    state.boost = ($("boostIn").value || "").trim() || null; saveCfg();
     var k = $("keyIn").value.trim();
     var c = $("convIn").value.trim();
     if(state.prov === "free"){
@@ -479,7 +512,16 @@
   });
   $("setBtn").addEventListener("click", openSetup);
   $("cancelSetup").addEventListener("click", function(){ $("modal").classList.remove("on"); });
-  $("saveSetup").addEventListener("click", saveSetup);
+  $("saveSetup").addEventListener("click", function(){
+    if(state.prov === "free"){
+      state.boost = ($("boostIn").value || "").trim() || null; saveCfg();
+      $("modal").classList.remove("on");
+      toast(state.boost ? "Boost key saved." : "Free mode on, no key needed.");
+      setStatus("free ai");
+      return;
+    }
+    saveSetup();
+  });
   $("newBtn").addEventListener("click", function(){
     state.conv = null; state.msgs = []; saveCfg();
     try{ localStorage.removeItem(K.conv); localStorage.removeItem(K.msgs); }catch(e){}
