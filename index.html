@@ -103,6 +103,14 @@
   }
   .send:disabled{opacity:.45;cursor:not-allowed}
   .send:hover:not(:disabled){filter:brightness(1.07)}
+  .prov{display:flex;gap:.5rem;margin:.15rem 0 .9rem}
+  .pbtn{
+    flex:1;padding:.6rem .5rem;border-radius:10px;cursor:pointer;font-size:.78rem;font-weight:600;
+    background:var(--bg2);border:1px solid var(--line);color:var(--mut);transition:.15s
+  }
+  .pbtn.on{background:rgba(245,196,81,.12);border-color:var(--gold-dim);color:var(--gold)}
+  .pbtn small{display:block;font-weight:400;font-size:.66rem;color:var(--mut);margin-top:.15rem}
+  .pbtn.on small{color:var(--gold-dim)}
   .modal{
     position:fixed;inset:0;background:rgba(4,8,16,.86);backdrop-filter:blur(8px);
     display:none;place-items:center;padding:1rem;z-index:50
@@ -153,12 +161,12 @@
   <div class="thread" id="thread"></div>
   <div class="welcome" id="welcome">
     <div class="big">Good to see you, <span>Link</span>.</div>
-    <p>Ask me anything, hand me a task, or pick something below. I can work on your apps, run automations, and pull things together for you.</p>
+    <p id="welcomeNote">Free AI mode — no key, no credits, runs on an open model. Straight talk, quick answers, and it remembers this chat on this device only.</p>
     <div class="chips">
-      <div class="chip">What are you working on right now?</div>
-      <div class="chip">Status of my three apps</div>
-      <div class="chip">Summarize today's prayer push health</div>
-      <div class="chip">Any BOL uploads pending?</div>
+      <div class="chip">Explain the difference between sunnah and fard simply</div>
+      <div class="chip">Give me a 5 minute mobility routine</div>
+      <div class="chip">Help me name a YouTube series</div>
+      <div class="chip">Rewrite this text to sound more confident</div>
     </div>
   </div>
 </main>
@@ -172,13 +180,20 @@
 
 <div class="modal" id="modal">
   <div class="sheet">
-    <h2>Connect to Jarvis</h2>
-    <p>Paste your agent API key once. It stays on this device only (localStorage) — it is never uploaded anywhere.</p>
+    <h2>Jarvis settings</h2>
+    <p>Pick what runs the app. Free mode needs no key at all; it uses an open model on Pollinations (your messages leave this device, so don't paste secrets).</p>
+    <label>Model</label>
+    <div class="prov">
+      <button class="pbtn on" data-prov="free">Free AI<small>no key · free</small></button>
+      <button class="pbtn" data-prov="agent">Jarvis agent<small>needs API key</small></button>
+    </div>
+    <div id="agentFields" style="display:none">
     <label for="keyIn">Agent API key</label>
     <input id="keyIn" type="password" placeholder="api_key from your agent's API docs" autocomplete="off" spellcheck="false">
     <div class="hint">Grab it in Base44 → your Jarvis agent → <a href="https://app.base44.com/superagent/6a704fd9688b1feb11f8ed2a" target="_blank" rel="noopener">API docs / Developer panel</a>.</div>
     <label for="convIn">Conversation ID (optional)</label>
     <input id="convIn" type="text" placeholder="leave blank to auto-create" autocomplete="off" spellcheck="false">
+    </div>
     <div class="row">
       <button class="btn" id="cancelSetup">Cancel</button>
       <button class="btn primary" id="saveSetup">Connect</button>
@@ -191,13 +206,23 @@
 (function(){
   "use strict";
   var API = "https://app.base44.com/api/agents/6a704fd9688b1feb11f8ed2a";
-  var K = { key:"jarvis_key", conv:"jarvis_conv", msgs:"jarvis_msgs" };
+  var K = { key:"jarvis_key", conv:"jarvis_conv", msgs:"jarvis_msgs", prov:"jarvis_prov" };
+  var FREE = "https://text.pollinations.ai/openai";
+  var SYS = [
+    "You are Jarvis, Link's personal AI. Tone: warm, direct, casually witty, a little slangy.",
+    "Keep replies short by default (1-3 sentences) unless Link asks for detail. No fluff, no filler openers.",
+    "Use plain prose, no em dashes. If you're unsure, say so plainly instead of guessing.",
+    "You are running inside Link's standalone Jarvis app on a free open model, so you have no live tools,",
+    "no memory beyond this chat, and no access to Link's apps or accounts. If something would need those,",
+    "say what you'd need in one line instead of pretending you did it."
+  ].join(" ");
   var $ = function(id){ return document.getElementById(id); };
   var thread=$("thread"), main=$("main"), input=$("input"), sendBtn=$("sendBtn"), welcome=$("welcome");
-  var state = { key:null, conv:null, busy:false, msgs:[] };
+  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free" };
 
   function loadCfg(){
     try{
+      state.prov = localStorage.getItem(K.prov) || "free";
       state.key = localStorage.getItem(K.key) || null;
       state.conv = localStorage.getItem(K.conv) || null;
       state.msgs = JSON.parse(localStorage.getItem(K.msgs) || "[]");
@@ -205,6 +230,7 @@
   }
   function saveCfg(){
     try{
+      localStorage.setItem(K.prov, state.prov);
       if(state.key) localStorage.setItem(K.key, state.key);
       if(state.conv) localStorage.setItem(K.conv, state.conv);
       localStorage.setItem(K.msgs, JSON.stringify(state.msgs.slice(-200)));
@@ -314,6 +340,30 @@
     return null;
   }
 
+  async function callFree(){
+    var msgs = [{ role:"system", content:SYS }];
+    state.msgs.slice(-14).forEach(function(m){
+      if(m.text && m.text.charAt(0) === "\u26a0") return;      // skip error bubbles
+      msgs.push({ role: m.role === "user" ? "user" : "assistant", content: m.text });
+    });
+    var res = await fetch(FREE, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ model:"openai", messages: msgs, referrer:"jarvis-app" })
+    });
+    var txt = await res.text(), data = null;
+    try{ data = txt ? JSON.parse(txt) : null; }catch(e){ data = { raw: txt }; }
+    if(!res.ok){
+      if(res.status === 429) throw new Error("Free model is rate limited right now. Give it a minute and try again.");
+      var m = (data && (data.error && (data.error.message || data.error) || data.message)) || ("HTTP " + res.status);
+      throw new Error(typeof m === "string" ? m : JSON.stringify(m));
+    }
+    var out = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if(!out && typeof txt === "string" && txt && txt.charAt(0) !== "{") out = txt;
+    if(!out) throw new Error("The free model sent back an empty reply.");
+    return String(out).trim();
+  }
+
   async function ensureConversation(){
     if(state.conv) return state.conv;
     // reuse the newest existing conversation, else create one
@@ -332,19 +382,24 @@
   async function send(){
     var text = input.value.trim();
     if(!text || state.busy) return;
-    if(!state.key){ openSetup(); return; }
+    if(state.prov === "agent" && !state.key){ openSetup(); return; }
     input.value = ""; autoSize();
     pushMsg("user", text);
     state.busy = true; sendBtn.disabled = true; setStatus("thinking…");
     typing(true);
     try{
-      var conv = await ensureConversation();
-      var out = await api("/conversations/" + encodeURIComponent(conv) + "/messages", {
-        method:"POST",
-        body:{ message: text, content: text }
-      });
-      var reply = pickText(out);
-      if(!reply) reply = "I got your message but couldn't read the reply. (" + JSON.stringify(out).slice(0,300) + ")";
+      var reply;
+      if(state.prov === "free"){
+        reply = await callFree();
+      } else {
+        var conv = await ensureConversation();
+        var out = await api("/conversations/" + encodeURIComponent(conv) + "/messages", {
+          method:"POST",
+          body:{ message: text, content: text }
+        });
+        reply = pickText(out);
+        if(!reply) reply = "I got your message but couldn't read the reply. (" + JSON.stringify(out).slice(0,300) + ")";
+      }
       typing(false);
       pushMsg("assistant", reply);
       setStatus("ready");
@@ -363,17 +418,35 @@
     input.style.height = Math.min(input.scrollHeight, 140) + "px";
   }
 
+  function paintProv(){
+    var note = $("welcomeNote");
+    if(note) note.textContent = state.prov === "free"
+      ? "Free AI mode — no key, no credits, runs on an open model. Straight talk, quick answers, and it remembers this chat on this device only."
+      : "Jarvis agent mode — running on the full agent with access to your apps, tools and automations.";
+    document.querySelectorAll(".pbtn").forEach(function(b){
+      b.classList.toggle("on", b.getAttribute("data-prov") === state.prov);
+    });
+    $("agentFields").style.display = state.prov === "agent" ? "block" : "none";
+  }
   function openSetup(){
     $("keyIn").value = state.key || "";
     $("convIn").value = state.conv || "";
     $("setupMsg").textContent = "";
+    paintProv();
     $("modal").classList.add("on");
-    setTimeout(function(){ $("keyIn").focus(); }, 50);
+    if(state.prov === "agent") setTimeout(function(){ $("keyIn").focus(); }, 50);
   }
 
   async function saveSetup(){
     var k = $("keyIn").value.trim();
     var c = $("convIn").value.trim();
+    if(state.prov === "free"){
+      saveCfg();
+      $("modal").classList.remove("on");
+      setStatus("free ai");
+      toast("Free AI mode on \u2713", 2400);
+      return;
+    }
     if(!k){ $("setupMsg").textContent = "Enter your API key to connect."; return; }
     $("setupMsg").textContent = "Checking…";
     state.key = k; state.conv = c || null;
@@ -392,6 +465,11 @@
 
   // wiring
   $("sendBtn").addEventListener("click", send);
+  document.querySelectorAll(".pbtn").forEach(function(b){
+    b.addEventListener("click", function(){
+      state.prov = b.getAttribute("data-prov"); paintProv(); saveCfg();
+    });
+  });
   $("setBtn").addEventListener("click", openSetup);
   $("cancelSetup").addEventListener("click", function(){ $("modal").classList.remove("on"); });
   $("saveSetup").addEventListener("click", saveSetup);
@@ -409,8 +487,9 @@
     if(chip){ input.value = chip.textContent; autoSize(); input.focus(); }
   });
 
-  loadCfg(); render();
-  if(!state.key){ setStatus("not connected"); openSetup(); }
+  loadCfg(); paintProv(); render();
+  if(state.prov === "free"){ setStatus("free ai"); }
+  else if(!state.key){ setStatus("not connected"); }
   else { setStatus("ready"); }
 })();
 </script>
