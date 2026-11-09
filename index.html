@@ -208,17 +208,23 @@
   var API = "https://app.base44.com/api/agents/6a704fd9688b1feb11f8ed2a";
   var K = { key:"jarvis_key", conv:"jarvis_conv", msgs:"jarvis_msgs", prov:"jarvis_prov" };
   var FREE = "https://text.pollinations.ai/openai";
-  var SYS = [
-    "You are Jarvis, Link's personal AI. Tone: warm, direct, casually witty, a little slangy.",
-    "Keep replies short by default (1-3 sentences) unless Link asks for detail. No fluff, no filler openers.",
-    "Use plain prose, no em dashes. If you're unsure, say so plainly instead of guessing.",
-    "You are running inside Link's standalone Jarvis app on a free open model, so you have no live tools,",
-    "no memory beyond this chat, and no access to Link's apps or accounts. If something would need those,",
-    "say what you'd need in one line instead of pretending you did it."
-  ].join(" ");
+  var SYS = "You are Jarvis, Link's personal AI: warm, sharp, direct, a little slangy. Keep replies short by default. Never use em dashes. Understand slang. You are running as a free, keyless app with no tools, no connectors, and no memory beyond this conversation: never pretend you did something you cannot do here, and point Link at the full agent when a task needs real actions. If asked, say plainly that this app keeps only this chat.";
+  var KERNEL_URL = "kernel.md";
+  async function loadKernel(){
+    try{
+      var cached = localStorage.getItem("jarvis_kernel");
+      var res = await fetch(KERNEL_URL + "?v=" + Date.now(), { cache:"no-store" });
+      if(res.ok){
+        var t = await res.text();
+        if(t && t.length > 400){ localStorage.setItem("jarvis_kernel", t); return t; }
+      }
+    }catch(e){}
+    try{ var old = localStorage.getItem("jarvis_kernel"); if(old) return old; }catch(e){}
+    return SYS;
+  }
   var $ = function(id){ return document.getElementById(id); };
   var thread=$("thread"), main=$("main"), input=$("input"), sendBtn=$("sendBtn"), welcome=$("welcome");
-  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free" };
+  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free", kernel:null };
 
   function loadCfg(){
     try{
@@ -341,7 +347,8 @@
   }
 
   async function callFree(){
-    var msgs = [{ role:"system", content:SYS }];
+    var kernel = state.kernel || SYS;
+    var msgs = [{ role:"system", content:kernel }];
     state.msgs.slice(-14).forEach(function(m){
       if(m.text && m.text.charAt(0) === "\u26a0") return;      // skip error bubbles
       msgs.push({ role: m.role === "user" ? "user" : "assistant", content: m.text });
@@ -491,6 +498,7 @@
   if(state.prov === "free"){ setStatus("free ai"); }
   else if(!state.key){ setStatus("not connected"); }
   else { setStatus("ready"); }
+  loadKernel().then(function(k){ state.kernel = k; });
 })();
 </script>
 </body>
