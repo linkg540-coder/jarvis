@@ -551,6 +551,7 @@
     var choice = data && data.choices && data.choices[0];
     var msg = (choice && choice.message) || {};
     var content = String(msg.content || "").trim();
+    if(!content && msg.reasoning) content = String(msg.reasoning).trim().split("\n").filter(Boolean).pop() || "";
     if(!content){
       // the free model sometimes returns an empty turn; retry once with a tighter prompt
       var short = [{ role:"system", content: (state.kernel || SYS).slice(0, 2200) +
