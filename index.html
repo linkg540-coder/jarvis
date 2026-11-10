@@ -403,7 +403,7 @@
     var body;
     if(useGroq){
       headers["Authorization"] = "Bearer " + state.groq;
-      body = { model: GROQ_MODEL, messages: msgs, temperature: 0.8, max_tokens: 1400 };
+      body = { model: GROQ_MODEL, messages: msgs, temperature: 0.8, max_tokens: 1600, reasoning_effort: "low" };
     } else {
       if(state.boost) headers["Authorization"] = "Bearer " + state.boost;
       body = { model:"openai", messages: msgs, referrer:"jarvis-app" };
