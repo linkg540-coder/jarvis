@@ -548,9 +548,21 @@
     }
     var msgs = [{ role:"system", content: sys }].concat(hist);
     var data = await chatPost(msgs, false);
-    var msg = data && data.choices && data.choices[0] && data.choices[0].message;
-    var content = String((msg && msg.content) || "").trim();
-    if(!content) throw new Error("The free model sent back an empty reply.");
+    var choice = data && data.choices && data.choices[0];
+    var msg = (choice && choice.message) || {};
+    var content = String(msg.content || "").trim();
+    if(!content){
+      // the free model sometimes returns an empty turn; retry once with a tighter prompt
+      var short = [{ role:"system", content: (state.kernel || SYS).slice(0, 2200) +
+        (live.length ? "\n\nLive data just fetched:\n" + live.map(function(x){ return x.n + ": " + String(x.v).slice(0, 700); }).join("\n") : "") }]
+        .concat(hist.slice(-4));
+      var d2 = await chatPost(short, false);
+      var ch2 = d2 && d2.choices && d2.choices[0];
+      var m2 = (ch2 && ch2.message) || {};
+      content = String(m2.content || "").trim();
+      if(!content && m2.reasoning) content = String(m2.reasoning).trim().split("\n").filter(Boolean).pop() || "";
+      if(!content) throw new Error("empty reply (finish " + ((ch2 && ch2.finish_reason) || "?") + ") :: " + JSON.stringify(d2).slice(0, 220));
+    }
     return { text: content, used: live.map(function(x){ return x.n; }) };
   }
 
