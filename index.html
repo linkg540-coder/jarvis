@@ -189,9 +189,12 @@
     </div>
     <div id="freeFields">
     <label for="boostIn">Free boost key (optional)</label>
-    <input id="boostIn" type="password" placeholder="leave blank for the plain free tier" autocomplete="off" spellcheck="false">
+    <input id="boostIn" type="password" placeholder="leave blank for the plain free tier" autocomplete="off" spellcheck="false" onfocus="this.select()">
     <div class="hint">Free tier allows one reply every 45s per network. A free Pollinations key lifts that: <a href="https://enter.pollinations.ai" target="_blank" rel="noopener">enter.pollinations.ai</a>.</div>
     </div>
+    <label for="groqIn">Groq API key (optional, free + fast)</label>
+    <input id="groqIn" type="password" placeholder="gsk_... from console.groq.com/keys" autocomplete="off" spellcheck="false" onfocus="this.select()">
+    <div class="hint">Groq's free tier has no 45s throttle and beats the open model. Used first when set: console.groq.com/keys</div>
     <div id="agentFields" style="display:none">
     <label for="keyIn">Agent API key</label>
     <input id="keyIn" type="password" placeholder="api_key from your agent's API docs" autocomplete="off" spellcheck="false">
@@ -213,6 +216,8 @@
   var API = "https://app.base44.com/api/agents/6a704fd9688b1feb11f8ed2a";
   var K = { key:"jarvis_key", conv:"jarvis_conv", msgs:"jarvis_msgs", prov:"jarvis_prov" };
   var FREE = "https://text.pollinations.ai/openai";
+  var GROQ = "https://api.groq.com/openai/v1/chat/completions";
+  var GROQ_MODEL = "openai/gpt-oss-120b";
   var SYS = "You are Jarvis, Link's personal AI: warm, sharp, direct, a little slangy. Keep replies short by default. Never use em dashes. Understand slang. You are running as a free, keyless app with no tools, no connectors, and no memory beyond this conversation: never pretend you did something you cannot do here, and point Link at the full agent when a task needs real actions. If asked, say plainly that this app keeps only this chat.";
   var KERNEL_URL = "kernel.md";
   var FACTS_KEY = "jarvis_facts";
@@ -247,12 +252,13 @@
   }
   var $ = function(id){ return document.getElementById(id); };
   var thread=$("thread"), main=$("main"), input=$("input"), sendBtn=$("sendBtn"), welcome=$("welcome");
-  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free", kernel:null, boost:null, facts:[] };
+  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free", kernel:null, boost:null, groq:null, facts:[] };
 
   function loadCfg(){
     try{
       state.prov = localStorage.getItem(K.prov) || "free";
       state.boost = localStorage.getItem("jarvis_boost") || null;
+      state.groq = localStorage.getItem("jarvis_groq") || null;
       try{ state.facts = JSON.parse(localStorage.getItem(FACTS_KEY) || "[]"); }catch(e){ state.facts = []; }
       state.key = localStorage.getItem(K.key) || null;
       state.conv = localStorage.getItem(K.conv) || null;
@@ -263,6 +269,7 @@
     try{
       localStorage.setItem(K.prov, state.prov);
       if(state.boost) localStorage.setItem("jarvis_boost", state.boost); else localStorage.removeItem("jarvis_boost");
+      if(state.groq) localStorage.setItem("jarvis_groq", state.groq); else localStorage.removeItem("jarvis_groq");
       if(state.key) localStorage.setItem(K.key, state.key);
       if(state.conv) localStorage.setItem(K.conv, state.conv);
       localStorage.setItem(K.msgs, JSON.stringify(state.msgs.slice(-200)));
@@ -390,11 +397,19 @@
   }
 
   async function chatPost(msgs, withTools){
+    var useGroq = !!state.groq;
+    var url = useGroq ? GROQ : FREE;
     var headers = { "Content-Type":"application/json" };
-    if(state.boost) headers["Authorization"] = "Bearer " + state.boost;
-    var body = { model:"openai", messages: msgs, referrer:"jarvis-app" };
-    if(withTools) body.tools = TOOLS;
-    var res = await fetch(FREE, { method:"POST", headers: headers, body: JSON.stringify(body) });
+    var body;
+    if(useGroq){
+      headers["Authorization"] = "Bearer " + state.groq;
+      body = { model: GROQ_MODEL, messages: msgs, temperature: 0.8, max_tokens: 1400 };
+    } else {
+      if(state.boost) headers["Authorization"] = "Bearer " + state.boost;
+      body = { model:"openai", messages: msgs, referrer:"jarvis-app" };
+      if(withTools) body.tools = TOOLS;
+    }
+    var res = await fetch(url, { method:"POST", headers: headers, body: JSON.stringify(body) });
     var txt = await res.text(), data = null;
     try{ data = txt ? JSON.parse(txt) : null; }catch(e){ data = { raw: txt }; }
     if(!res.ok){
@@ -564,7 +579,7 @@
       if(!content && m2.reasoning) content = String(m2.reasoning).trim().split("\n").filter(Boolean).pop() || "";
       if(!content) throw new Error("empty reply (finish " + ((ch2 && ch2.finish_reason) || "?") + ") :: " + JSON.stringify(d2).slice(0, 220));
     }
-    if(/reached its budget|raise the key budget/i.test(content)){
+    if(!state.groq && /reached its budget|raise the key budget/i.test(content)){
       throw new Error("Your Pollinations key is out of budget. Raise the key limit at enter.pollinations.ai (edit key), or clear the key in settings to use the plain free tier.");
     }
     return { text: content, used: live.map(function(x){ return x.n; }) };
@@ -659,6 +674,7 @@
   }
   function openSetup(){
     $("boostIn").value = state.boost || "";
+    $("groqIn").value = state.groq || "";
     $("keyIn").value = state.key || "";
     $("convIn").value = state.conv || "";
     $("setupMsg").textContent = "";
@@ -668,7 +684,9 @@
   }
 
   async function saveSetup(){
-    state.boost = ($("boostIn").value || "").trim() || null; saveCfg();
+    state.boost = ($("boostIn").value || "").trim() || null;
+    state.groq = ($("groqIn").value || "").trim() || null;
+    saveCfg();
     var k = $("keyIn").value.trim();
     var c = $("convIn").value.trim();
     if(state.prov === "free"){
@@ -705,9 +723,11 @@
   $("cancelSetup").addEventListener("click", function(){ $("modal").classList.remove("on"); });
   $("saveSetup").addEventListener("click", function(){
     if(state.prov === "free"){
-      state.boost = ($("boostIn").value || "").trim() || null; saveCfg();
+      state.boost = ($("boostIn").value || "").trim() || null;
+      state.groq = ($("groqIn").value || "").trim() || null;
+      saveCfg();
       $("modal").classList.remove("on");
-      toast(state.boost ? "Boost key saved." : "Free mode on, no key needed.");
+      toast(state.groq ? "Groq key saved." : (state.boost ? "Boost key saved." : "Free mode on, no key needed."));
       setStatus("free ai");
       return;
     }
