@@ -564,6 +564,9 @@
       if(!content && m2.reasoning) content = String(m2.reasoning).trim().split("\n").filter(Boolean).pop() || "";
       if(!content) throw new Error("empty reply (finish " + ((ch2 && ch2.finish_reason) || "?") + ") :: " + JSON.stringify(d2).slice(0, 220));
     }
+    if(/reached its budget|raise the key budget/i.test(content)){
+      throw new Error("Your Pollinations key is out of budget. Raise the key limit at enter.pollinations.ai (edit key), or clear the key in settings to use the plain free tier.");
+    }
     return { text: content, used: live.map(function(x){ return x.n; }) };
   }
 
