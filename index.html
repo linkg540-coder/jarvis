@@ -215,6 +215,24 @@
   var FREE = "https://text.pollinations.ai/openai";
   var SYS = "You are Jarvis, Link's personal AI: warm, sharp, direct, a little slangy. Keep replies short by default. Never use em dashes. Understand slang. You are running as a free, keyless app with no tools, no connectors, and no memory beyond this conversation: never pretend you did something you cannot do here, and point Link at the full agent when a task needs real actions. If asked, say plainly that this app keeps only this chat.";
   var KERNEL_URL = "kernel.md";
+  var FACTS_KEY = "jarvis_facts";
+  var TOOLS = [
+    { type:"function", function:{ name:"check_projects",
+      description:"Live check of Link's four apps: HTTP status of each live site, plus the last commit and last GitHub Actions run per repo. Use whenever he asks how the projects are doing.",
+      parameters:{ type:"object", properties:{}, required:[] } } },
+    { type:"function", function:{ name:"prayer_push_status",
+      description:"Islamic Companion prayer push health: minutes until the next scheduled push, how many devices are subscribed, how many were skipped for missing location.",
+      parameters:{ type:"object", properties:{}, required:[] } } },
+    { type:"function", function:{ name:"read_url",
+      description:"Fetch a public web page or JSON API and return its text (truncated). Only works for sites that allow cross-origin requests, so some URLs will fail.",
+      parameters:{ type:"object", properties:{ url:{ type:"string", description:"Full https URL" } }, required:["url"] } } },
+    { type:"function", function:{ name:"remember_fact",
+      description:"Save a durable fact about Link into this app's memory: a preference, project detail, decision, or personal detail. Use when he tells you something worth keeping.",
+      parameters:{ type:"object", properties:{ fact:{ type:"string", description:"One short self-contained fact" } }, required:["fact"] } } },
+    { type:"function", function:{ name:"forget_fact",
+      description:"Delete a saved memory whose text matches the given phrase.",
+      parameters:{ type:"object", properties:{ match:{ type:"string", description:"Words to match against saved facts" } }, required:["match"] } } }
+  ];
   async function loadKernel(){
     try{
       var cached = localStorage.getItem("jarvis_kernel");
@@ -229,12 +247,13 @@
   }
   var $ = function(id){ return document.getElementById(id); };
   var thread=$("thread"), main=$("main"), input=$("input"), sendBtn=$("sendBtn"), welcome=$("welcome");
-  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free", kernel:null, boost:null };
+  var state = { key:null, conv:null, busy:false, msgs:[], prov:"free", kernel:null, boost:null, facts:[] };
 
   function loadCfg(){
     try{
       state.prov = localStorage.getItem(K.prov) || "free";
       state.boost = localStorage.getItem("jarvis_boost") || null;
+      try{ state.facts = JSON.parse(localStorage.getItem(FACTS_KEY) || "[]"); }catch(e){ state.facts = []; }
       state.key = localStorage.getItem(K.key) || null;
       state.conv = localStorage.getItem(K.conv) || null;
       state.msgs = JSON.parse(localStorage.getItem(K.msgs) || "[]");
@@ -276,15 +295,17 @@
       el.className = "msg " + who;
       el.innerHTML = '<div class="av">' + (who==="me" ? "L" : "◈") + '</div>' +
                      '<div><div class="bubble">' + mdLite(m.text) + '</div>' +
-                     (m.at ? '<div class="meta">' + esc(m.at) + '</div>' : '') + '</div>';
+                     ((m.at || (m.tools && m.tools.length)) ? '<div class="meta">' + esc(m.at || '') +
+                       (m.tools && m.tools.length ? (m.at ? ' · ' : '') + 'used ' + esc(m.tools.filter(function(v,i,a){return a.indexOf(v)===i;}).join(', ')) : '') +
+                       '</div>' : '') + '</div>';
       thread.appendChild(el);
     });
     scrollDown();
   }
   function scrollDown(){ requestAnimationFrame(function(){ main.scrollTop = main.scrollHeight + 999; }); }
 
-  function pushMsg(role, text){
-    state.msgs.push({ role:role, text:text, at:new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}) });
+  function pushMsg(role, text, tools){
+    state.msgs.push({ role:role, text:text, at:new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}), tools: (tools && tools.length ? tools : undefined) });
     saveCfg(); render();
   }
 
@@ -353,19 +374,27 @@
     return null;
   }
 
-  async function callFree(){
-    var kernel = state.kernel || SYS;
-    var msgs = [{ role:"system", content:kernel }];
-    state.msgs.slice(-14).forEach(function(m){
-      if(m.text && m.text.charAt(0) === "\u26a0") return;      // skip error bubbles
-      msgs.push({ role: m.role === "user" ? "user" : "assistant", content: m.text });
-    });
-    var res = await fetch(FREE, {
-      method:"POST",
-      headers: state.boost ? { "Content-Type":"application/json", "Authorization":"Bearer " + state.boost }
-                              : { "Content-Type":"application/json" },
-      body: JSON.stringify({ model:"openai", messages: msgs, referrer:"jarvis-app" })
-    });
+  function saveFacts(){
+    try{ localStorage.setItem(FACTS_KEY, JSON.stringify(state.facts.slice(-40))); }catch(e){}
+  }
+  function kernelForTurn(){
+    var k = state.kernel || SYS;
+    if(state.facts.length){
+      k += "\n\n# What you remember about Link\n" + state.facts.map(function(f){ return "- " + f.t; }).join("\n");
+    }
+    k += "\n\n# Tools you have in this app\n"
+      + "You can call: check_projects (live status of his four apps), prayer_push_status, read_url, remember_fact, forget_fact.\n"
+      + "Use them instead of guessing or saying you cannot check. After a tool returns, answer from what it actually said and keep it short.\n"
+      + "You still cannot change anything in his apps, send messages or email, touch YouTube/Spotify, or run workflows from here. When a task needs that, say so in one line and point at the full agent.";
+    return k;
+  }
+
+  async function chatPost(msgs, withTools){
+    var headers = { "Content-Type":"application/json" };
+    if(state.boost) headers["Authorization"] = "Bearer " + state.boost;
+    var body = { model:"openai", messages: msgs, referrer:"jarvis-app" };
+    if(withTools) body.tools = TOOLS;
+    var res = await fetch(FREE, { method:"POST", headers: headers, body: JSON.stringify(body) });
     var txt = await res.text(), data = null;
     try{ data = txt ? JSON.parse(txt) : null; }catch(e){ data = { raw: txt }; }
     if(!res.ok){
@@ -375,13 +404,135 @@
         var lim = new Error("Free model is rate limited (one reply every 45s per network). Retrying in " + ra + "s.");
         lim.retryAfter = ra; throw lim;
       }
-      var m = (data && (data.error && (data.error.message || data.error) || data.message)) || ("HTTP " + res.status);
-      throw new Error(typeof m === "string" ? m : JSON.stringify(m));
+      var em = (data && (data.error && (data.error.message || data.error) || data.message)) || ("HTTP " + res.status);
+      var err = new Error(typeof em === "string" ? em : JSON.stringify(em));
+      err.status = res.status; err.body = txt;
+      throw err;
     }
-    var out = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if(!out && typeof txt === "string" && txt && txt.charAt(0) !== "{") out = txt;
-    if(!out) throw new Error("The free model sent back an empty reply.");
-    return String(out).trim();
+    return data;
+  }
+
+  function stripHtml(s){
+    return String(s)
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+      .replace(/\s+/g, " ").trim();
+  }
+
+  async function runTool(name, args){
+    try{
+      if(name === "check_projects"){
+        var sites = [
+          ["Islamic Companion", "https://linkg540-coder.github.io/islamic-companion/"],
+          ["Islamic Companion (custom domain)", "https://islamiccompanion.linkg540-coder.is-a.dev/"],
+          ["Black Ops League", "https://linkg540-coder.github.io/black-ops-league/"],
+          ["StyleStash", "https://linkg540-coder.github.io/style-stash/"],
+          ["Jarvis app", "https://linkg540-coder.github.io/jarvis/"]
+        ];
+        var lines = [];
+        for(var i=0;i<sites.length;i++){
+          var code = "unreachable";
+          try{ var r = await fetch(sites[i][1], { method:"GET", cache:"no-store" }); code = r.status; }catch(e){ code = "blocked by CORS"; }
+          lines.push(sites[i][0] + ": " + code);
+        }
+        var repos = ["islamic-companion","black-ops-league","style-stash","jarvis"];
+        for(var j=0;j<repos.length;j++){
+          var line = repos[j] + ":";
+          try{
+            var cr = await fetch("https://api.github.com/repos/linkg540-coder/" + repos[j] + "/commits?per_page=1");
+            if(cr.status === 403){ line += " github rate limited (60/hr unauthenticated)"; lines.push(line); continue; }
+            var cj = await cr.json();
+            line += cj[0] ? (" last commit " + cj[0].commit.committer.date.slice(0,10) + " \"" + cj[0].commit.message.split("\n")[0].slice(0,60) + "\"") : " no commits";
+            var wr = await fetch("https://api.github.com/repos/linkg540-coder/" + repos[j] + "/actions/runs?per_page=1");
+            var wj = await wr.json();
+            var run = (wj.workflow_runs || [])[0];
+            if(run) line += " | last run " + run.name + " " + (run.conclusion || run.status) + " " + run.created_at.slice(0,16).replace("T"," ");
+          }catch(e){ line += " check failed"; }
+          lines.push(line);
+        }
+        return lines.join("\n");
+      }
+
+      if(name === "prayer_push_status"){
+        var pr = await fetch("https://solene-11f8ed2a.base44.app/functions/icNotifDispatch", {
+          method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ mode:"peek" })
+        });
+        if(!pr.ok) return "prayer backend returned HTTP " + pr.status;
+        var pj = await pr.json();
+        return "Next push in about " + Math.round(pj.seconds/60) + " min. Devices subscribed: " + pj.subs
+          + ". Skipped for missing location: " + (pj.skippedNoLocation || 0) + "."
+          + (pj.geocoded ? " Just geocoded " + pj.geocoded + " device(s)." : "");
+      }
+
+      if(name === "read_url"){
+        var url = String(args.url || "");
+        if(!/^https:\/\//.test(url)) return "Only https URLs work here.";
+        var rr = await fetch(url, { cache:"no-store" });
+        var raw = await rr.text();
+        var textOut = /json|javascript/.test(rr.headers.get("content-type") || "") ? raw.replace(/\s+/g, " ").trim() : stripHtml(raw);
+        return "HTTP " + rr.status + " from " + url + "\n" + textOut.slice(0, 2200);
+      }
+
+      if(name === "remember_fact"){
+        var f = String(args.fact || "").trim();
+        if(!f) return "nothing to save";
+        state.facts.push({ t: f.slice(0, 300), at: new Date().toISOString() });
+        saveFacts();
+        return "saved: " + f.slice(0, 300);
+      }
+
+      if(name === "forget_fact"){
+        var m = String(args.match || "").toLowerCase().trim();
+        if(!m) return "nothing to forget";
+        var before = state.facts.length;
+        state.facts = state.facts.filter(function(x){ return x.t.toLowerCase().indexOf(m) === -1; });
+        saveFacts();
+        return before === state.facts.length ? "no memory matched \"" + m + "\"" : "forgot " + (before - state.facts.length) + " memory";
+      }
+
+      return "unknown tool " + name;
+    }catch(e){
+      return "tool failed: " + (e && e.message ? e.message : "unknown error");
+    }
+  }
+
+  async function callMember(hist){
+    var msgs = [{ role:"system", content: kernelForTurn() }].concat(hist);
+    var used = [];
+    for(var round=0; round<4; round++){
+      var data;
+      try{
+        data = await chatPost(msgs, true);
+      }catch(e){
+        if(e.status === 400 && round === 0){
+          data = await chatPost(msgs, false);          // endpoint rejected tools: plain answer
+          var plain = data && data.choices && data.choices[0] && data.choices[0].message;
+          return { text: String((plain && plain.content) || "").trim(), used: used };
+        }
+        throw e;
+      }
+      var msg = data && data.choices && data.choices[0] && data.choices[0].message;
+      if(!msg) break;
+      if(msg.tool_calls && msg.tool_calls.length){
+        msgs.push({ role:"assistant", content: msg.content || "", tool_calls: msg.tool_calls });
+        for(var t=0;t<msg.tool_calls.length;t++){
+          var tc = msg.tool_calls[t];
+          var targs = {};
+          try{ targs = JSON.parse(tc.function.arguments || "{}"); }catch(e){}
+          var out = await runTool(tc.function.name, targs);
+          used.push(tc.function.name);
+          setStatus(tc.function.name.replace(/_/g," ") + "…");
+          msgs.push({ role:"tool", tool_call_id: tc.id, name: tc.function.name, content: String(out).slice(0, 4000) });
+        }
+        continue;
+      }
+      var content = String(msg.content || "").trim();
+      if(content) return { text: content, used: used };
+      break;
+    }
+    return { text: "I lost the thread there. Ask me again?", used: used };
   }
 
   async function ensureConversation(){
@@ -410,9 +561,14 @@
     try{
       var reply;
       if(state.prov === "free"){
-      var reply = null, tries = 0;
+      var reply = null, tries = 0, usedTools = [], out, hist;
       while(reply === null){
-        try{ reply = await callFree(); }
+        try{
+          hist = state.msgs.slice(-14).filter(function(m){ return !(m.text && m.text.charAt(0) === "\u26a0"); })
+                    .map(function(m){ return { role: m.role === "user" ? "user" : "assistant", content: m.text }; });
+          out = await callMember(hist);
+          reply = out.text; usedTools = out.used;
+        }
         catch(e){
           if(e && e.retryAfter && tries < 2){
             tries++;
@@ -436,7 +592,7 @@
         if(!reply) reply = "I got your message but couldn't read the reply. (" + JSON.stringify(out).slice(0,300) + ")";
       }
       typing(false);
-      pushMsg("assistant", reply);
+      pushMsg("assistant", reply, usedTools);
       setStatus("ready");
     }catch(err){
       typing(false);
