@@ -498,41 +498,60 @@
     }
   }
 
-  async function callMember(hist){
-    var msgs = [{ role:"system", content: kernelForTurn() }].concat(hist);
-    var used = [];
-    for(var round=0; round<4; round++){
-      var data;
-      try{
-        data = await chatPost(msgs, true);
-      }catch(e){
-        if(e.status === 400 && round === 0){
-          data = await chatPost(msgs, false);          // endpoint rejected tools: plain answer
-          var plain = data && data.choices && data.choices[0] && data.choices[0].message;
-          return { text: String((plain && plain.content) || "").trim(), used: used };
-        }
-        throw e;
+  function detectTools(text){
+    var t = String(text || "");
+    var want = [];
+    if(/\b(project|projects|status|how are|apps?|sites?|live|deploy|repo|github|check)\b/i.test(t)) want.push("check_projects");
+    if(/\b(prayer|prayers|push|pushes|notification|notifications|fajr|isha|adhan)\b/i.test(t)) want.push("prayer_push_status");
+    var m = t.match(/remember (?:that )?(.+)$/i);
+    if(m) want.push("remember:" + m[1]);
+    var f = t.match(/forget (?:that )?(.+)$/i);
+    if(f) want.push("forget:" + f[1]);
+    var u = t.match(/https:\/\/[^\s]+/);
+    if(u) want.push("read:" + u[0]);
+    return want;
+  }
+
+  // One API call per message keeps us inside the free tier's 1-per-45s limit,
+  // so instead of a model-driven tool loop we fetch live data first and hand
+  // the model real results in the system prompt.
+  async function preflight(text){
+    var wants = detectTools(text);
+    var live = [];
+    for(var i=0;i<wants.length && live.length<3;i++){
+      var w = wants[i];
+      if(w.indexOf("remember:") === 0){
+        var saved = await runTool("remember_fact", { fact: w.slice(9) });
+        live.push({ n:"memory", v: saved });
+      } else if(w.indexOf("forget:") === 0){
+        live.push({ n:"memory", v: await runTool("forget_fact", { match: w.slice(7) }) });
+      } else if(w.indexOf("read:") === 0){
+        setStatus("reading page…");
+        live.push({ n:"read_url", v: await runTool("read_url", { url: w.slice(5) }) });
+      } else {
+        setStatus(w.replace(/_/g," ") + "…");
+        live.push({ n: w, v: await runTool(w, {}) });
       }
-      var msg = data && data.choices && data.choices[0] && data.choices[0].message;
-      if(!msg) break;
-      if(msg.tool_calls && msg.tool_calls.length){
-        msgs.push({ role:"assistant", content: msg.content || "", tool_calls: msg.tool_calls });
-        for(var t=0;t<msg.tool_calls.length;t++){
-          var tc = msg.tool_calls[t];
-          var targs = {};
-          try{ targs = JSON.parse(tc.function.arguments || "{}"); }catch(e){}
-          var out = await runTool(tc.function.name, targs);
-          used.push(tc.function.name);
-          setStatus(tc.function.name.replace(/_/g," ") + "…");
-          msgs.push({ role:"tool", tool_call_id: tc.id, name: tc.function.name, content: String(out).slice(0, 4000) });
-        }
-        continue;
-      }
-      var content = String(msg.content || "").trim();
-      if(content) return { text: content, used: used };
-      break;
     }
-    return { text: "I lost the thread there. Ask me again?", used: used };
+    return live;
+  }
+
+  async function callMember(hist){
+    var lastUser = "";
+    for(var i=hist.length-1;i>=0;i--){ if(hist[i].role === "user"){ lastUser = hist[i].content; break; } }
+    var live = await preflight(lastUser);
+    var sys = kernelForTurn();
+    if(live.length){
+      sys += "\n\n# Live data you just fetched (real, this message)\n"
+        + live.map(function(x){ return "## " + x.n + "\n" + String(x.v).slice(0, 1800); }).join("\n\n")
+        + "\n\nAnswer from this data. Do not invent anything beyond it.";
+    }
+    var msgs = [{ role:"system", content: sys }].concat(hist);
+    var data = await chatPost(msgs, false);
+    var msg = data && data.choices && data.choices[0] && data.choices[0].message;
+    var content = String((msg && msg.content) || "").trim();
+    if(!content) throw new Error("The free model sent back an empty reply.");
+    return { text: content, used: live.map(function(x){ return x.n; }) };
   }
 
   async function ensureConversation(){
